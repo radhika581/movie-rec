@@ -1,0 +1,6 @@
+{
+    "python.defaultInterpreterPath": "c:\\Users\\Rana\\Downloads\\movie recommended system\\.venv\\Scripts\\python.exe",
+    "python.analysis.extraPaths": [
+        "c:\\Users\\Rana\\Downloads\\movie recommended system\\.venv\\Lib\\site-packages"
+    ]
+}
