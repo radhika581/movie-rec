@@ -9,90 +9,25 @@ API_BASE = "https://movie-rec-cige.onrender.com"
 TMDB_IMG = "https://image.tmdb.org/t/p/w500"
 TMDB_API_KEY = "8265bd1679663a7ea12ac168da84d2e8" 
 
-st.set_page_config(page_title="Netflix Clone | Recommender", page_icon="🎬", layout="wide")
+# --- CHANGE 1: Browser Tab Title ---
+st.set_page_config(page_title="Cinema AI | Smart Movie Recommender", page_icon="🎬", layout="wide")
 
 # =============================
-# STYLES (Netflix Theme & Hover Play Logic)
+# STYLES (Modern Dark Theme)
 # =============================
 st.markdown(
     """
 <style>
-/* Main Background */
-.stApp {
-    background-color: #141414;
-    color: white;
-}
-
-/* Movie Card Container */
-.movie-link {
-    text-decoration: none;
-    color: inherit;
-    display: block;
-    position: relative;
-}
-
-.movie-card {
-    position: relative;
-    transition: transform 0.4s ease;
-    border-radius: 10px;
-    overflow: hidden;
-    cursor: pointer;
-}
-
-.movie-card:hover {
-    transform: scale(1.1);
-    z-index: 99;
-    box-shadow: 0px 10px 30px rgba(0,0,0,0.7);
-}
-
-/* Play Button Overlay */
-.play-btn {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    font-size: 60px;
-    color: white;
-    opacity: 0;
-    transition: opacity 0.3s ease;
-    background: rgba(0,0,0,0.3);
-    border-radius: 50%;
-    padding: 10px;
-    text-shadow: 0px 0px 15px rgba(0,0,0,0.5);
-}
-
-.movie-card:hover .play-btn {
-    opacity: 1;
-}
-
-/* Movie Title Text */
-.movie-title { 
-    font-size: 0.9rem; 
-    font-weight: bold; 
-    color: #e5e5e5;
-    margin-top: 12px;
-    text-align: center;
-    line-height: 1.2rem;
-}
-
-/* Details Button Styling */
-div.stButton > button {
-    background-color: #333;
-    color: white;
-    border: none;
-    width: 100%;
-    border-radius: 5px;
-    margin-top: 5px;
-}
-div.stButton > button:hover {
-    background-color: #e50914; /* Netflix Red */
-    color: white;
-}
-
-/* Sidebar Customization */
-section[data-testid="stSidebar"] {
-    background-color: #181818 !important;
-}
+.stApp { background-color: #141414; color: white; }
+.movie-link { text-decoration: none; color: inherit; display: block; position: relative; }
+.movie-card { position: relative; transition: transform 0.4s ease; border-radius: 10px; overflow: hidden; cursor: pointer; }
+.movie-card:hover { transform: scale(1.1); z-index: 99; box-shadow: 0px 10px 30px rgba(0,0,0,0.7); }
+.play-btn { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 60px; color: white; opacity: 0; transition: opacity 0.3s ease; background: rgba(0,0,0,0.3); border-radius: 50%; padding: 10px; }
+.movie-card:hover .play-btn { opacity: 1; }
+.movie-title { font-size: 0.9rem; font-weight: bold; color: #e5e5e5; margin-top: 12px; text-align: center; }
+div.stButton > button { background-color: #333; color: white; border: none; width: 100%; border-radius: 5px; margin-top: 5px; }
+div.stButton > button:hover { background-color: #0078ff; color: white; } /* Blue highlight instead of Netflix red */
+section[data-testid="stSidebar"] { background-color: #181818 !important; }
 </style>
 """,
     unsafe_allow_html=True,
@@ -106,8 +41,7 @@ def api_get_json(path: str, params: dict | None = None):
     try:
         r = requests.get(f"{API_BASE}{path}", params=params, timeout=25)
         return r.json() if r.status_code < 400 else None
-    except:
-        return None
+    except: return None
 
 def fetch_trailer(tmdb_id):
     try:
@@ -153,12 +87,10 @@ def poster_grid(cards, cols=6, key_prefix="grid"):
             title = m.get("title", "Untitled")
             poster = m.get("poster_url")
             
-            # Prepare the Trailer Link
             t_url = fetch_trailer(tmdb_id)
             final_link = t_url if t_url else f"https://www.youtube.com/results?search_query={title}+trailer"
 
             with colset[c]:
-                # CLICKABLE POSTER (Opens Trailer)
                 st.markdown(f"""
                 <a href="{final_link}" target="_blank" class="movie-link">
                     <div class="movie-card">
@@ -168,7 +100,6 @@ def poster_grid(cards, cols=6, key_prefix="grid"):
                 </a>
                 """, unsafe_allow_html=True)
 
-                # DETAILS BUTTON (Navigates within App)
                 if st.button("Details", key=f"det_{key_prefix}_{idx}_{tmdb_id}"):
                     goto_details(tmdb_id)
                 
@@ -178,7 +109,7 @@ def poster_grid(cards, cols=6, key_prefix="grid"):
 # SIDEBAR
 # =============================
 with st.sidebar:
-    st.image("https://upload.wikimedia.org/wikipedia/commons/0/08/Netflix_2015_logo.svg", width=150)
+    st.title("🎬 Navigator") # --- CHANGE 2: Sidebar Header ---
     if st.button("🏠 Home", use_container_width=True): goto_home()
     
     if st.button("🍿 Surprise Me!", use_container_width=True):
@@ -186,15 +117,15 @@ with st.sidebar:
         if data: goto_details(random.choice(data)['tmdb_id'])
 
     st.markdown("---")
-    home_category = st.selectbox("Browse Categories", ["trending", "popular", "top_rated", "upcoming"])
-    grid_cols = st.slider("Grid Size", 4, 8, 6)
+    home_category = st.selectbox("Explore By", ["trending", "popular", "top_rated", "upcoming"])
+    grid_cols = st.slider("Layout", 4, 8, 6)
 
 # =============================
 # MAIN LOGIC
 # =============================
 if st.session_state.view == "home":
-    st.title("Explore Movies")
-    typed = st.text_input("Search...", placeholder="Search for your next favorite movie...")
+    st.title("Cinema AI Recommender") # --- CHANGE 3: Main Page Title ---
+    typed = st.text_input("Find a movie...", placeholder="Search for titles...")
     
     if typed.strip():
         data = api_get_json("/tmdb/search", params={"query": typed.strip()})
@@ -208,7 +139,7 @@ if st.session_state.view == "home":
         if home_cards: poster_grid(home_cards, cols=grid_cols, key_prefix="home")
 
 elif st.session_state.view == "details":
-    if st.button("← Back to Browse"): goto_home()
+    if st.button("← Back"): goto_home()
     tmdb_id = st.session_state.selected_tmdb_id
     data = api_get_json(f"/movie/id/{tmdb_id}")
     
@@ -221,7 +152,7 @@ elif st.session_state.view == "details":
             st.write(data.get("overview"))
         
         st.divider()
-        st.subheader("More Like This")
+        st.subheader("Discover Similar Titles")
         bundle = api_get_json("/movie/search", params={"query": data.get("title"), "tfidf_top_n": 12})
         if bundle:
             recs = []
