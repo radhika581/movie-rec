@@ -1,146 +1,286 @@
 import requests
 import streamlit as st
 import random
-import streamlit.components.v1 as components
+import json
+import os
 
 # =============================
-# 1. CONFIG & PAGE SETUP
+# CONFIG
 # =============================
 API_BASE = "https://movie-rec-cige.onrender.com"
 TMDB_IMG = "https://image.tmdb.org/t/p/w500"
-TMDB_LOGO = "https://image.tmdb.org/t/p/original" 
-TMDB_API_KEY = "8265bd1679663a7ea12ac168da84d2e8" 
 
 st.set_page_config(page_title="Cinema AI", page_icon="🎬", layout="wide")
 
-# Custom CSS for UI
+# =============================
+# UI (Netflix Hover)
+# =============================
 st.markdown("""
 <style>
 .stApp { background-color: #141414; color: white; }
-.movie-link { text-decoration: none; color: inherit; display: block; position: relative; }
-.movie-card { position: relative; transition: transform 0.4s ease; border-radius: 10px; overflow: hidden; cursor: pointer; }
-.movie-card:hover { transform: scale(1.08); z-index: 9; box-shadow: 0px 10px 30px rgba(0,0,0,0.7); }
-.play-btn { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); font-size: 60px; opacity: 0; transition: opacity 0.3s ease; pointer-events: none; }
-.movie-card:hover .play-btn { opacity: 1; }
-.movie-title { font-size: 0.9rem; font-weight: bold; color: #e5e5e5; margin-top: 10px; text-align: center; height: 3rem; overflow: hidden; }
-section[data-testid="stSidebar"] { background-color: #181818 !important; }
-div.stButton > button { background-color: #333; color: white; border: none; width: 100%; border-radius: 5px; }
-div.stButton > button:hover { background-color: #0078ff; }
+
+.movie-card {
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+    border-radius: 10px;
+    overflow: hidden;
+}
+.movie-card:hover {
+    transform: scale(1.12);
+    z-index: 10;
+    box-shadow: 0px 10px 25px rgba(0,0,0,0.7);
+}
 </style>
 """, unsafe_allow_html=True)
 
 # =============================
-# 2. DATA FETCHING (Robust)
+# FILE SETUP
 # =============================
-@st.cache_data(ttl=300)
+USER_FILE = "users.json"
+
+if not os.path.exists(USER_FILE):
+    with open(USER_FILE, "w") as f:
+        json.dump({}, f)
+
+def load_users():
+    with open(USER_FILE, "r") as f:
+        return json.load(f)
+
+def save_users(data):
+    with open(USER_FILE, "w") as f:
+        json.dump(data, f, indent=4)
+
+USERS = load_users()
+
+# =============================
+# SESSION
+# =============================
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+if "user" not in st.session_state:
+    st.session_state.user = None
+if "view" not in st.session_state:
+    st.session_state.view = "home"
+
+# =============================
+# LOGIN
+# =============================
+def login_page():
+    st.title("🔐 Login / Signup")
+
+    tab1, tab2 = st.tabs(["Login", "Signup"])
+
+    with tab1:
+        u = st.text_input("Username")
+        p = st.text_input("Password", type="password")
+        if st.button("Login"):
+            if u in USERS and USERS[u]["password"] == p:
+                st.session_state.logged_in = True
+                st.session_state.user = u
+                st.rerun()
+            else:
+                st.error("Invalid credentials")
+
+    with tab2:
+        u = st.text_input("Create Username")
+        p = st.text_input("Create Password", type="password")
+        if st.button("Signup"):
+            if u in USERS:
+                st.warning("User exists")
+            else:
+                USERS[u] = {"password": p, "history": []}
+                save_users(USERS)
+                st.success("Account created")
+
+# =============================
+# API
+# =============================
+@st.cache_data(ttl=60)
 def api_get_json(path, params=None):
     try:
-        r = requests.get(f"{API_BASE}{path}", params=params, timeout=10)
-        return r.json() if r.status_code == 200 else None
-    except: return None
-
-def fetch_trailer(tmdb_id):
-    try:
-        url = f"https://api.themoviedb.org/3/movie/{tmdb_id}/videos?api_key={TMDB_API_KEY}"
-        res = requests.get(url, timeout=5).json()
-        for v in res.get("results", []):
-            if v["site"] == "YouTube" and v["type"] == "Trailer":
-                return f"https://www.youtube.com/watch?v={v['key']}"
-    except: return None
-
-def fetch_ott(tmdb_id):
-    try:
-        url = f"https://api.themoviedb.org/3/movie/{tmdb_id}/watch/providers?api_key={TMDB_API_KEY}"
-        res = requests.get(url, timeout=5).json()
-        # Checks India, then US
-        return res.get("results", {}).get("IN") or res.get("results", {}).get("US")
-    except: return None
+        r = requests.get(f"{API_BASE}{path}", params=params, timeout=20)
+        return r.json() if r.status_code < 400 else None
+    except:
+        return None
 
 # =============================
-# 3. ROUTING & UI
+# NAVIGATION
 # =============================
-if "view" not in st.session_state: st.session_state.view = "home"
+def goto_home():
+    st.session_state.view = "home"
+    st.rerun()
 
-def goto_home(): st.session_state.view = "home"; st.rerun()
-def goto_details(tid): st.session_state.view = "details"; st.session_state.selected_tmdb_id = tid; st.rerun()
+def goto_details(tmdb_id, title):
+    st.session_state.view = "details"
+    st.session_state.selected_tmdb_id = tmdb_id
 
-def render_grid(cards, cols=6, key="grid"):
-    if not cards: return st.write("No movies found.")
-    idx = 0
-    rows = (len(cards) + cols - 1) // cols
-    for r in range(rows):
-        colset = st.columns(cols)
-        for c in range(cols):
-            if idx >= len(cards): break
-            m = cards[idx]; idx += 1
-            tid, title, poster = m['tmdb_id'], m['title'], m['poster_url']
-            t_url = fetch_trailer(tid) or f"https://www.youtube.com/results?search_query={title}+trailer"
-            with colset[c]:
-                st.markdown(f'<a href="{t_url}" target="_blank" class="movie-link"><div class="movie-card"><img src="{poster}" style="width:100%;"><div class="play-btn">▶️</div></div></a>', unsafe_allow_html=True)
-                if st.button("Details", key=f"{key}_{tid}_{idx}"): goto_details(tid)
-                st.markdown(f"<div class='movie-title'>{title}</div>", unsafe_allow_html=True)
+    if title not in USERS[st.session_state.user]["history"]:
+        USERS[st.session_state.user]["history"].append(title)
+        save_users(USERS)
 
-# --- SIDEBAR ---
+    st.rerun()
+
+# =============================
+# GRID (FAST)
+# =============================
+def poster_grid(cards):
+    if not cards:
+        st.warning("No movies found")
+        return
+
+    cols = st.columns(6)
+
+    for i, m in enumerate(cards):
+        # 🔥 NO API CALL HERE (FAST)
+        link = f"https://www.youtube.com/results?search_query={m['title']} trailer"
+
+        with cols[i % 6]:
+            st.markdown(f"""
+            <a href="{link}" target="_blank">
+                <div class="movie-card">
+                    <img src="{m['poster_url']}" style="width:100%;">
+                </div>
+            </a>
+            """, unsafe_allow_html=True)
+
+            if st.button("Details", key=f"{m['tmdb_id']}_{i}"):
+                goto_details(m["tmdb_id"], m["title"])
+
+            st.caption(m["title"])
+
+# =============================
+# AUTH CHECK
+# =============================
+if not st.session_state.logged_in:
+    login_page()
+    st.stop()
+
+# =============================
+# SIDEBAR
+# =============================
 with st.sidebar:
-    st.title("🎬 Navigator")
-    if st.button("🏠 Home", use_container_width=True): goto_home()
-    cat = st.selectbox("Explore", ["trending", "popular", "top_rated", "upcoming"])
-    g_cols = st.slider("Columns", 4, 8, 6)
+    st.write(f"👤 {st.session_state.user}")
 
-# --- MAIN CONTENT ---
+    if st.button("Logout"):
+        st.session_state.logged_in = False
+        st.rerun()
+
+    st.write(f"👥 Users: {len(USERS)}")
+
+    st.markdown("### History")
+    for h in USERS[st.session_state.user]["history"][-5:][::-1]:
+        st.caption(h)
+
+    if st.button("Home"):
+        goto_home()
+
+    category = st.selectbox("Category", ["trending", "popular", "top_rated"])
+
+# =============================
+# MAIN
+# =============================
 if st.session_state.view == "home":
-    st.title("Cinema AI")
-    q = st.text_input("Search...", placeholder="Start typing a movie name...")
-    if q.strip():
-        data = api_get_json("/tmdb/search", {"query": q})
+    st.title("🎬 Cinema AI")
+
+    query = st.text_input("Search movie...")
+
+    # SEARCH
+    if query:
+        data = api_get_json("/tmdb/search", {"query": query})
+
         if data:
-            results = [{"tmdb_id": x['id'], "title": x['title'], "poster_url": f"{TMDB_IMG}{x['poster_path']}"} for x in data.get("results", []) if x.get("poster_path")]
-            render_grid(results[:18], cols=g_cols, key="search")
+            cards = [
+                {
+                    "tmdb_id": m["id"],
+                    "title": m["title"],
+                    "poster_url": f"{TMDB_IMG}{m['poster_path']}"
+                }
+                for m in data.get("results", [])
+                if m.get("poster_path")
+            ]
+            poster_grid(cards)
+
+    # HOME (ALWAYS SHOW)
     else:
-        h_data = api_get_json("/home", {"category": cat, "limit": 24})
-        if h_data: render_grid(h_data, cols=g_cols, key="home")
+        data = api_get_json("/home", {"category": category, "limit": 24})
 
+        cards = []
+
+        if data:
+            cards = [
+                {
+                    "tmdb_id": m.get("tmdb_id") or m.get("id"),
+                    "title": m.get("title"),
+                    "poster_url": m.get("poster_url") or (
+                        f"{TMDB_IMG}{m.get('poster_path')}" if m.get("poster_path") else None
+                    )
+                }
+                for m in data
+                if (m.get("poster_url") or m.get("poster_path"))
+            ]
+
+        # fallback
+        if not cards:
+            fallback = api_get_json("/home", {"category": "popular", "limit": 24})
+            if fallback:
+                cards = [
+                    {
+                        "tmdb_id": m.get("tmdb_id") or m.get("id"),
+                        "title": m.get("title"),
+                        "poster_url": m.get("poster_url") or (
+                            f"{TMDB_IMG}{m.get('poster_path')}" if m.get("poster_path") else None
+                        )
+                    }
+                    for m in fallback
+                    if (m.get("poster_url") or m.get("poster_path"))
+                ]
+
+        poster_grid(cards)
+
+# =============================
+# DETAILS
+# =============================
 elif st.session_state.view == "details":
-    if st.button("← Back"): goto_home()
-    tid = st.session_state.selected_tmdb_id
-    data = api_get_json(f"/movie/id/{tid}")
-    if data:
-        l, r = st.columns([1, 2.5])
-        with l: st.image(data.get("poster_url"), use_container_width=True)
-        with r:
-            st.header(data.get("title"))
-            st.write(f"⭐ {data.get('vote_average')} | 📅 {data.get('release_date')}")
-            st.write(data.get("overview"))
-            
-            # OTT Providers
-            st.markdown("#### 📡 Streaming On")
-            prov = fetch_ott(tid)
-            if prov and prov.get("flatrate"):
-                p_cols = st.columns(min(len(prov['flatrate']), 6))
-                for i, p in enumerate(prov['flatrate'][:6]):
-                    with p_cols[i]:
-                        st.image(f"{TMDB_LOGO}{p['logo_path']}", width=45)
-                        st.caption(p['provider_name'])
-            else: st.caption("Not streaming currently.")
 
-        st.divider()
-        st.subheader("More Like This")
-        bundle = api_get_json("/movie/search", {"query": data.get("title"), "tfidf_top_n": 12})
-        if bundle:
-            recs = [{"tmdb_id": x['tmdb']["tmdb_id"], "title": x['tmdb']["title"], "poster_url": x['tmdb']["poster_url"]} for x in bundle.get("tfidf_recommendations", []) if x.get("tmdb")]
-            render_grid(recs, cols=g_cols, key="rec")
+    if st.button("← Back"):
+        goto_home()
 
-# =============================
-# 4. SWIPE SCRIPT (Placed at bottom)
-# =============================
-components.html("""
-<script>
-    let startX = 0;
-    document.addEventListener('touchstart', e => { startX = e.touches[0].clientX; });
-    document.addEventListener('touchend', e => {
-        let endX = e.changedTouches[0].clientX;
-        if (startX - endX > 100) { window.history.forward(); }
-        if (endX - startX > 100) { window.history.back(); }
-    });
-</script>
-""", height=0)
+    movie = api_get_json(f"/movie/id/{st.session_state.selected_tmdb_id}")
+
+    if movie:
+        st.header(movie.get("title"))
+        st.image(movie.get("poster_url"))
+        st.write(movie.get("overview"))
+
+        st.subheader("🎯 Similar Movies")
+
+        recs = api_get_json("/movie/search", {"query": movie.get("title")})
+
+        cards = []
+
+        if recs and recs.get("tfidf_recommendations"):
+            cards = [
+                {
+                    "tmdb_id": x["tmdb"]["tmdb_id"],
+                    "title": x["tmdb"]["title"],
+                    "poster_url": x["tmdb"]["poster_url"]
+                }
+                for x in recs["tfidf_recommendations"]
+                if x.get("tmdb")
+            ]
+
+        if not cards:
+            fallback = api_get_json("/home", {"category": "popular", "limit": 12})
+            if fallback:
+                cards = [
+                    {
+                        "tmdb_id": m.get("tmdb_id") or m.get("id"),
+                        "title": m.get("title"),
+                        "poster_url": m.get("poster_url") or (
+                            f"{TMDB_IMG}{m.get('poster_path')}" if m.get("poster_path") else None
+                        )
+                    }
+                    for m in fallback
+                    if (m.get("poster_url") or m.get("poster_path"))
+                ]
+
+        poster_grid(cards)
